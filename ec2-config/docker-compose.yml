@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  app:
+    image: tayraps/vitalaxis:latest
+    container_name: vitalaxis-app
+    ports:
+      - "5000:5000"
+    logging:
+      driver: awslogs
+      options:
+        awslogs-group: "/vitalaxis/application"
+        awslogs-region: "af-south-1"
+        awslogs-stream: "docker-${HOSTNAME}"
+    environment:
+      - DATABASE_URL=postgresql://vitalaxis_user:ChangeMe123!@${RDS_ENDPOINT}/vitalaxisdb
+    env_file:
+      - .env
+    restart: always

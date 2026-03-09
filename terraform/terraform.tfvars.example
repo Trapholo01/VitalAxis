@@ -1,0 +1,9 @@
+# AWS Configuration
+aws_region = "af-south-1"
+project_name = "vitalaxis"
+environment = "dev"
+
+# Database credentials - CHANGE THESE!
+db_name     = "vitalaxisdb"
+db_username = "vitalaxis_user"
+db_password = "ChangeMe123!"  # Change this to a secure password
