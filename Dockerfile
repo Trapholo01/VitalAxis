@@ -1,9 +1,7 @@
 FROM python:3.9-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    FLASK_APP=app.py \
-    FLASK_ENV=production
+    PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 
@@ -23,4 +21,5 @@ USER appuser
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "app:app"]
+# Use wsgi:app
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "wsgi:app"]
