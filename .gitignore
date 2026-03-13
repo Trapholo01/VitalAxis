@@ -26,3 +26,9 @@ __pycache__/
 .idea/
 *.swp
 *.swo
+
+# Test files - never commit these
+Dockerfile.simple*
+*_simple.py
+simple_*.py
+test_*.py
