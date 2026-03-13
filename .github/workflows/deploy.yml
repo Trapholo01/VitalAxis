@@ -17,9 +17,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -42,44 +39,54 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Get EC2 instance IPs
-        id: get_ips
+      - name: Get EC2 instance IDs
+        id: get_instances
         run: |
           INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
             --auto-scaling-group-names vitalaxis-asg \
             --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
             --output text)
           
-          PRIVATE_IPS=""
-          for ID in $INSTANCE_IDS; do
-            IP=$(aws ec2 describe-instances \
-              --instance-ids $ID \
-              --query 'Reservations[0].Instances[0].PrivateIpAddress' \
-              --output text)
-            PRIVATE_IPS="$PRIVATE_IPS $IP"
-          done
-          
-          echo "private_ips=$(echo $PRIVATE_IPS | tr ' ' ',')" >> $GITHUB_OUTPUT
+          echo "instance_ids=$(echo $INSTANCE_IDS | tr ' ' ',')" >> $GITHUB_OUTPUT
+          echo "Found instances: $INSTANCE_IDS"
 
-      - name: Deploy to EC2 instances
+      - name: Deploy to EC2 instances via Session Manager
         env:
-          PRIVATE_IPS: ${{ steps.get_ips.outputs.private_ips }}
+          INSTANCE_IDS: ${{ steps.get_instances.outputs.instance_ids }}
           RDS_ENDPOINT: ${{ secrets.RDS_ENDPOINT }}
         run: |
-          if [ -z "$PRIVATE_IPS" ]; then
+          if [ -z "$INSTANCE_IDS" ]; then
             echo "No instances found"
             exit 1
           fi
           
-          IFS=',' read -ra IPS <<< "$PRIVATE_IPS"
-          for IP in "${IPS[@]}"; do
-            echo "Deploying to $IP..."
+          IFS=',' read -ra IDS <<< "$INSTANCE_IDS"
+          for ID in "${IDS[@]}"; do
+            echo "Deploying to instance: $ID"
             
-            # This uses Session Manager - no SSH keys needed!
-            aws ssm start-session --target $IP --document-name AWS-StartInteractiveCommand --parameters command="sudo docker pull tayraps/vitalaxis:latest && sudo docker stop vitalaxis-app || true && sudo docker rm vitalaxis-app || true && sudo docker run -d --name vitalaxis-app -p 5000:5000 -e DATABASE_URL=postgresql://vitalaxis_user:ChangeMe123!@$RDS_ENDPOINT/vitalaxisdb tayraps/vitalaxis:latest"
+            # Use SSM send-command instead of start-session (works better in CI)
+            aws ssm send-command \
+              --instance-ids "$ID" \
+              --document-name "AWS-RunShellScript" \
+              --parameters commands="'
+                sudo docker pull ${{ env.DOCKER_IMAGE }}:latest
+                sudo docker stop vitalaxis-app || true
+                sudo docker rm vitalaxis-app || true
+                sudo docker run -d \
+                  --name vitalaxis-app \
+                  --restart unless-stopped \
+                  -p 5000:5000 \
+                  -e DATABASE_URL=postgresql://vitalaxis_user:ChangeMe123!@$RDS_ENDPOINT/vitalaxisdb \
+                  ${{ env.DOCKER_IMAGE }}:latest
+                sleep 5
+                curl -f http://localhost:5000/health
+              '" --comment "Deploying VitalAxis" --output text
             
-            echo "Deployed to $IP successfully!"
+            echo "Deployment command sent to $ID"
           done
+
+      - name: Wait for deployment
+        run: sleep 30
 
       - name: Verify deployment
         run: |
@@ -89,5 +96,4 @@ jobs:
             --output text)
           
           echo "Application URL: http://$ALB_DNS"
-          sleep 10
-          curl -f "http://$ALB_DNS/health" || echo "Health check failed"
+          curl -f "http://$ALB_DNS/health" || echo "Health check failed - check instances manually"
