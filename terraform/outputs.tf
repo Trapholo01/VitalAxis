@@ -14,11 +14,6 @@ output "rds_endpoint" {
   sensitive   = true
 }
 
-output "asg_name" {
-  description = "Auto Scaling Group name"
-  value       = aws_autoscaling_group.main.name
-}
-
 output "public_subnet_ids" {
   description = "Public subnet IDs"
   value       = aws_subnet.public[*].id
@@ -27,6 +22,11 @@ output "public_subnet_ids" {
 output "private_subnet_ids" {
   description = "Private subnet IDs"
   value       = aws_subnet.private[*].id
+}
+
+output "asg_name" {
+  description = "Auto Scaling Group name"
+  value       = aws_autoscaling_group.main.name
 }
 
 output "ec2_sg_id" {

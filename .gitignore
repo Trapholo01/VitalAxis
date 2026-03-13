@@ -1,18 +1,28 @@
-# Python
+# Sensitive files
+*.pem
+*.key
+*.priv
+vitalaxis-ssh-key
+vitalaxis-ssh-key.pub
+
+# Terraform sensitive files
+terraform/terraform.tfvars
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform/
+
+# Environment files
+.env
+.env.*
+*.env
+
+# Python cache
 __pycache__/
 *.pyc
-venv/
-.env
-
-# Terraform
-*.tfstate
-*.tfstate.backup
-.terraform/
-
-# Docker
-*.pem
-*.log
+.python-version
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
