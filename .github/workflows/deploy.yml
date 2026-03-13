@@ -5,33 +5,106 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  DOCKER_IMAGE: tayraps/vitalaxis
+  AWS_REGION: af-south-1
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          push: true
-          tags: tayraps/vitalaxis:latest
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: af-south-1
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ env.DOCKER_IMAGE }}:latest
+          ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
 
-      - name: Deploy to EC2
-        run: |
-          echo "Deployment will be added here"
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Get EC2 instance IPs
+      id: get_ips
+      run: |
+        INSTANCE_IDS=$(aws autoscaling describe-auto-scaling-groups \
+          --auto-scaling-group-names vitalaxis-asg \
+          --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`].InstanceId' \
+          --output text)
+        
+        PRIVATE_IPS=""
+        for ID in $INSTANCE_IDS; do
+          IP=$(aws ec2 describe-instances \
+            --instance-ids $ID \
+            --query 'Reservations[0].Instances[0].PrivateIpAddress' \
+            --output text)
+          PRIVATE_IPS="$PRIVATE_IPS $IP"
+        done
+        
+        echo "private_ips=$(echo $PRIVATE_IPS | tr ' ' ',')" >> $GITHUB_OUTPUT
+
+    - name: Deploy to EC2 instances
+      env:
+        PRIVATE_IPS: ${{ steps.get_ips.outputs.private_ips }}
+        SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+        RDS_ENDPOINT: ${{ secrets.RDS_ENDPOINT }}
+      run: |
+        echo "$SSH_PRIVATE_KEY" > vitalaxis-key.pem
+        chmod 600 vitalaxis-key.pem
+        
+        IFS=',' read -ra IPS <<< "$PRIVATE_IPS"
+        for IP in "${IPS[@]}"; do
+          echo "Deploying to $IP..."
+          
+          ssh -o StrictHostKeyChecking=no -i vitalaxis-key.pem ubuntu@$IP << 'ENDSSH'
+            docker pull tayraps/vitalaxis:latest
+            docker stop vitalaxis-app || true
+            docker rm vitalaxis-app || true
+            docker run -d \
+              --name vitalaxis-app \
+              --restart unless-stopped \
+              -p 5000:5000 \
+              -e DATABASE_URL=postgresql://vitalaxis_user:ChangeMe123!@${RDS_ENDPOINT}/vitalaxisdb \
+              tayraps/vitalaxis:latest
+            sleep 5
+            if curl -f http://localhost:5000/health; then
+              echo "âœ… Deployment successful on $IP"
+            else
+              echo "âŒ Health check failed on $IP"
+              exit 1
+            fi
+ENDSSH
+          
+          echo "Deployed to $IP successfully!"
+        done
+        
+        rm vitalaxis-key.pem
+
+    - name: Verify deployment
+      run: |
+        ALB_DNS=$(aws elbv2 describe-load-balancers \
+          --names vitalaxis-alb \
+          --query 'LoadBalancers[0].DNSName' \
+          --output text)
+        
+        echo "í¼ Application URL: http://$ALB_DNS"
+        sleep 10
+        curl -f "http://$ALB_DNS/health"
