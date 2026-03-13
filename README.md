@@ -97,11 +97,8 @@ VitalAxis/
 │   ├── __init__.py
 │   ├── models.py               # Database models
 │   └── templates/
-│       ├── base.html
-│       ├── index.html
 │       ├── dashboard.html
-│       ├── time.html
-│       └── budget.html
+│       └── index.html
 ├── ec2-config/
 │   ├── docker-compose.yml
 │   └── .env.template
