@@ -41,3 +41,13 @@ test_*.py
 crash.log
 override.tf
 terraform.rc
+
+# Terraform backup files
+*.backup
+*.lock.info
+
+# Terraform state (already ignored, but ensuring)
+*.tfstate
+*.tfstate.backup
+.terraform/
+*.tfvars
