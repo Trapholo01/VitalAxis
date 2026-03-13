@@ -32,3 +32,12 @@ Dockerfile.simple*
 *_simple.py
 simple_*.py
 test_*.py
+
+# Terraform
+*.tfstate
+*.tfstate.backup
+*.tfvars
+.terraform/
+crash.log
+override.tf
+terraform.rc
